@@ -1,7 +1,7 @@
 **This extension is a product of Vibe Coding.**  
 **Note** Linux and macOS platforms are untested.
 
-# IConsole Native Console Extension for GameMaker
+# IConsole: Native Console Extension for GameMaker
 
 A compact native console extension for GameMaker 2026 that provides colored logging, optional timestamps, file logging, and basic interactive input. Designed to fill the gap where the GMS2 runtime lacks a built-in console.
 
