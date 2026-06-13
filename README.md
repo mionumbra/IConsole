@@ -1,179 +1,212 @@
-### Declaration
 **This extension is a product of Vibe Coding.**  
 **Note** Linux and macOS platforms are untested.
 
-# IConsole - GameMaker Native Console Extension
+# IConsole Native Console Extension for GameMaker
 
-Provides a native console window for GameMaker 2026. The GMS2 runtime does not include a built-in console; **IConsole** fills that gap.
+A compact native console extension for GameMaker 2026 that provides colored logging, optional timestamps, file logging, and basic interactive input. Designed to fill the gap where the GMS2 runtime lacks a built-in console.
 
-## Features
-- **Native console window** — Creates a native console on Windows using `AllocConsole`  
-- **Colored output** — 16-color support, automatic coloring by log level  
-- **Log levels** — DEBUG, INFO, WARN, ERROR filtering  
-- **Timestamps** — Optional timestamp prefix for log lines  
-- **File logging** — Simultaneous output to console and file  
-- **Console input** — Non-blocking input checks and timed line reads  
-- **Cross-platform** — Windows, Linux, macOS support (Linux and macOS untested)
+---
+
+## Overview
+
+**What it does**
+
+- Creates a native console window on Windows and provides cross‑platform output fallbacks for POSIX systems.  
+- Supports **16 colors** and automatic coloring by log level.  
+- Provides **log level filtering** (DEBUG / INFO / WARN / ERROR).  
+- Optional **timestamp** prefix for log lines.  
+- Writes logs to a user-specified file in addition to console output.  
+- Non-blocking input checks and timed line reads for simple interactive flows.  
+- Thread-safe internal implementation.
+
+**Design notes**
+
+- On Windows the extension prefers native console output (colored via WinAPI).  
+- When stdout is captured (IDE or pipe), the extension writes plain text to stdout to avoid ANSI escape pollution.  
+- `iconsole_set_force_ansi(true)` lets callers force ANSI sequences when they know the consumer supports them. Use with caution.
 
 ---
 
 ## Quick Start
 
 ### Integration in GameMaker
-1. Create an extension in GameMaker (right click → Create Extension)  
-2. Add `extgen/IConsole.dll` for Windows platform  
-3. Add `scripts/IConsole/IConsole.gml` as the GML binding script
 
-### GML Usage Example
+1. Create an extension in GameMaker (right click → Create Extension).  
+2. Add `extgen/IConsole.dll` for Windows platform.  
+3. Add `scripts/IConsole/IConsole.gml` as the GML binding script.
+
+### Minimal GML Example
+
 ```gml
-// Open console
+// Open console and set title
 iconsole_open();
 iconsole_set_title("My Game Console");
 
-// Basic output
+// Print a line
 iconsole_print_line("Game started!");
 
-// Log level
-iconsole_set_log_level(1);  // show INFO and above
-iconsole_log(0, "This will be filtered"); // DEBUG filtered
-iconsole_log(1, "Game started");         // INFO white
-iconsole_log(2, "Low memory");           // WARN yellow
-iconsole_log(3, "Load failed");          // ERROR red
+// Log with levels
+iconsole_set_log_level(1); // show INFO and above
+iconsole_log(1, "Game initialized");
+iconsole_log(2, "Low memory warning");
+iconsole_log(3, "Load failed");
 
-// Timestamp
+// Timestamped logs
 iconsole_set_timestamp(true);
-iconsole_log(1, "Timestamped log");
-// Example output: [09:57:35] [INFO]  Timestamped log
+iconsole_log(1, "Timestamped message");
 
 // File logging
 iconsole_set_log_file("game.log");
 
-// Console input
+// Read input if available
 if (iconsole_has_input()) {
-    var input = iconsole_read_line(100);
-    iconsole_print_line("You typed: " + input);
+    var s = iconsole_read_line(200);
+    iconsole_print_line("You typed: " + s);
 }
+
+// Close when done
+iconsole_close();
 ```
+
+**Path note**: `iconsole_set_log_file` uses the process working directory for relative paths. Use absolute paths if needed.
 
 ---
 
 ## API Reference
 
-### Basic Functions
+### Basic Control
 
 | Function | Description |
 |---|---|
-| **iconsole_open** | Open the console window |
-| **iconsole_close** | Close the console window |
-| **iconsole_is_open** | Check whether the console is open |
-| **iconsole_print** | Print text without newline |
-| **iconsole_print_line** | Print a line of text |
-| **iconsole_clear** | Clear the console |
-| **iconsole_set_title** | Set the console window title |
-| **iconsole_set_color** | Set text color (0-15) |
+| `iconsole_open()` | Open or attach to a console |
+| `iconsole_close()` | Close or detach the console |
+| `iconsole_is_open()` | Returns whether a visible console is open |
 
-### Color Codes
-
-| Value | Color | Value | Color |
-|---|---:|---:|---|
-| **0** | Black | **8** | Gray |
-| **1** | Blue | **9** | Bright Blue |
-| **2** | Green | **10** | Bright Green |
-| **3** | Cyan | **11** | Bright Cyan |
-| **4** | Red | **12** | Bright Red |
-| **5** | Magenta | **13** | Bright Magenta |
-| **6** | Yellow | **14** | Bright Yellow |
-| **7** | White | **15** | Bright White |
-
-### Log Level Functions
+### Output
 
 | Function | Description |
 |---|---|
-| **iconsole_set_log_level** | Set log level (0=DEBUG, 1=INFO, 2=WARN, 3=ERROR) |
-| **iconsole_get_log_level** | Get current log level |
-| **iconsole_log** | Log with level and automatic coloring |
+| `iconsole_print(text)` | Print text without newline |
+| `iconsole_print_line(text)` | Print text with newline |
+| `iconsole_clear()` | Clear console contents |
+| `iconsole_set_title(title)` | Set console window title |
+| `iconsole_set_color(color)` | Set text color (0–15) for subsequent native console writes |
 
-### Timestamp Functions
-
-| Function | Description |
-|---|---|
-| **iconsole_set_timestamp** | Enable or disable timestamp prefix |
-| **iconsole_timestamp_enabled** | Check whether timestamps are enabled |
-
-### File Logging Functions
+### Logging
 
 | Function | Description |
 |---|---|
-| **iconsole_set_log_file** | Set log file path |
-| **iconsole_get_log_file** | Get current log file path |
-| **iconsole_close_log_file** | Close the log file |
-| **iconsole_log_file_open** | Check whether log file is open |
+| `iconsole_set_log_level(level)` | Set minimum log level (0=DEBUG,1=INFO,2=WARN,3=ERROR) |
+| `iconsole_get_log_level()` | Get current log level |
+| `iconsole_log(level, text)` | Log a message with automatic prefix and coloring |
 
-### Console Input Functions
+**Color codes**
+
+| Value | Color |
+|---:|---|
+| 0 | Black |
+| 1 | Blue |
+| 2 | Green |
+| 3 | Cyan |
+| 4 | Red |
+| 5 | Magenta |
+| 6 | Yellow |
+| 7 | White |
+| 8 | Gray |
+| 9 | Bright Blue |
+| 10 | Bright Green |
+| 11 | Bright Cyan |
+| 12 | Bright Red |
+| 13 | Bright Magenta |
+| 14 | Bright Yellow |
+| 15 | Bright White |
+
+### Timestamp and File Logging
 
 | Function | Description |
 |---|---|
-| **iconsole_has_input** | Check for available input (non-blocking) |
-| **iconsole_read_line** | Read a line with timeout in milliseconds |
-| **iconsole_read_key** | Read a single key (non-blocking, returns virtual key code) |
+| `iconsole_set_timestamp(enabled)` | Enable or disable timestamp prefix |
+| `iconsole_timestamp_enabled()` | Query timestamp state |
+| `iconsole_set_log_file(path)` | Open or replace log file (writes LF) |
+| `iconsole_get_log_file()` | Get current log file path |
+| `iconsole_close_log_file()` | Close the log file |
+| `iconsole_log_file_open()` | Check if log file is open |
+
+### Input
+
+| Function | Description |
+|---|---|
+| `iconsole_has_input()` | Non-blocking check for available input |
+| `iconsole_read_line(timeout_ms)` | Read a line, wait up to `timeout_ms` milliseconds (returns empty string on timeout) |
+| `iconsole_read_key()` | Read a single key (non-blocking), returns virtual key code on Windows or byte value on POSIX |
+
+### Advanced
+
+| Function | Description |
+|---|---|
+| `iconsole_set_force_ansi(enable)` | Force ANSI output even when stdout is captured (use only if consumer supports ANSI) |
 
 ---
 
-## Build
+## Build Instructions
 
 ### Prerequisites
-- **extgen** code generator  
-- **CMake 3.25+**  
-- **Visual Studio 2026** with v145 toolset
 
-### Build Steps
+- **extgen** code generator (project-specific)  
+- **CMake 3.25+**  
+- **Visual Studio** with a compatible MSVC toolset (verify toolset version used in your environment)
+
+### Windows Build Example
+
 ```bash
 cd extgen
 
-# Configure
+# Configure using provided preset
 cmake --preset win-x64-debug
 
 # Build
 cmake --build --preset win-x64-debug
 
-# Output: extgen/IConsole.dll
+# Result: extgen/IConsole.dll
+```
+
+If presets are not available, use a standard CMake configure/build flow:
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+cmake --build build --config Debug
 ```
 
 ---
 
-## Cross Platform Notes
+## Testing and Known Issues
 
-| Platform | Console Behavior |
-|---|---|
-| **Windows** | Native console window, color, title, Unicode support |
-| **Linux** | Outputs to stderr (visible when launched from a terminal) |
-| **macOS** | Same as Linux, ANSI color codes supported |
+**Tested platforms**
 
-**Note** Linux and macOS platforms are untested. Use with caution and report issues.
+- **Windows** — tested with native console scenarios (CMD, PowerShell, double-click AllocConsole).  
+- **Linux and macOS** — POSIX output paths implemented but not validated on real hardware. Use with caution.
 
----
+**Known behaviors**
 
-## Project Structure
+- When stdout is captured by an IDE or pipe, the extension writes plain text to stdout to avoid ANSI escape sequences appearing in logs. Use `iconsole_set_force_ansi(true)` only if you know the consumer supports ANSI.  
+- When launched by double-click (AllocConsole), the extension avoids inserting an extra blank line at the top of the new window for visual cleanliness. When attached to an existing terminal, the extension writes a single blank line to separate the shell prompt from program output.  
+- Log file lines use LF line endings for cross-platform readability.
 
-```
-IConsole/
-├── extgen/
-│   ├── config.json
-│   ├── spec.gmidl
-│   ├── CMakeLists.txt
-│   ├── CMakePresets.json
-│   ├── code_gen/
-│   ├── src/native/
-│   │   ├── IConsole_native.cpp
-│   │   └── IConsole_native.h
-│   └── cmake/
-├── scripts/IConsole/
-│   └── IConsole.gml
-└── README.md
-```
+**Troubleshooting**
+
+- If colors appear as raw escape sequences in your IDE, enable `iconsole_set_force_ansi(true)` only if your IDE supports ANSI.  
+- If `iconsole_open()` does not create a visible window when double-clicking, ensure the process has permission to create a console and that no parent process has captured stdout.  
+- For file permission errors, verify the running process has write access to the target path.
 
 ---
 
-## License
+## Contributing and License
 
-**MIT License**
+**Contributing**
+
+- Fork the repository, make changes in a feature branch, and open a pull request. Include tests for platform-specific behavior where possible.  
+- Add or update `CHANGELOG.md` entries for breaking changes and new features.
+
+**License**
+
+- This project is released under the **MIT License**. See the `LICENSE` file for details.
