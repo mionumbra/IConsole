@@ -1,0 +1,36 @@
+# Build outputs
+extgen/out/
+extgen/IConsole.dll
+extgen/IConsole.lib
+extgen/IConsole.exp
+
+# IDE
+.vs/
+.vscode/
+*.user
+*.suo
+*.sln.docstates
+
+# CMake
+CMakeUserPresets.json
+CMakeCache.txt
+CMakeFiles/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# extgen generated (keep spec.gmidl and config.json)
+extgen/extgen.schema.json
+extgen/.clang-format
+extgen/.gitignore
+extgen/templates/
+extgen/third_party/
+extgen/cmake/
+
+# GameMaker
+*.yyp
+*.yy
+*.png
+*.jpg
