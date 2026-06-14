@@ -1,4 +1,3 @@
-**This extension is a product of Vibe Coding.**  
 **Note** Linux and macOS platforms are untested.
 
 # IConsole: Native Console Extension for GameMaker
