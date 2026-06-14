@@ -1,4 +1,4 @@
-**Note** Linux and macOS platforms are untested.
+**Note:** Linux and macOS platforms are untested.
 
 # IConsole: Native Console Extension for GameMaker
 
