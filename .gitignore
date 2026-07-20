@@ -4,10 +4,8 @@
 /CMakePresets.json
 /.clang-format
 code_gen/
-project/extensions/ICompression/injectors
-project/extensions/ICompression/ICompression.dll
-project/scripts/ICompression_api/ICompression_api.gml
-project/scripts/GMExtCore/GMExtCore.gml
+project/extensions/IConsole/injectors
+project/extensions/IConsole/IConsole.dll
 cmake/
 build/
 out/
