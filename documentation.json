@@ -1,0 +1,180 @@
+/**
+ * @function_partial iconsole_open
+ * @function_end 
+ */
+
+/**
+ * @function_partial iconsole_close
+ * @function_end 
+ */
+
+/**
+ * @function_partial iconsole_shutdown
+ * @function_end 
+ */
+
+/**
+ * @function_partial iconsole_is_open
+ * @returns {Bool} 
+ * @function_end 
+ */
+
+/**
+ * @function_partial iconsole_print
+ * @param {String} text
+ * @function_end 
+ */
+
+/**
+ * @function_partial iconsole_print_line
+ * @param {String} text
+ * @function_end 
+ */
+
+/**
+ * @function_partial iconsole_clear
+ * @function_end 
+ */
+
+/**
+ * @function_partial iconsole_flush
+ * @function_end 
+ */
+
+/**
+ * @function_partial iconsole_set_title
+ * @param {String} title
+ * @function_end 
+ */
+
+/**
+ * @function_partial iconsole_set_color
+ * @param {Real} color
+ * @function_end 
+ */
+
+/**
+ * @function_partial iconsole_reset_color
+ * @function_end 
+ */
+
+/**
+ * @function_partial iconsole_set_force_ansi
+ * @param {Bool} enabled
+ * @function_end 
+ */
+
+/**
+ * @function_partial iconsole_force_ansi_enabled
+ * @returns {Bool} 
+ * @function_end 
+ */
+
+/**
+ * @function_partial iconsole_set_log_level
+ * @param {Real} level
+ * @function_end 
+ */
+
+/**
+ * @function_partial iconsole_get_log_level
+ * @returns {Real} 
+ * @function_end 
+ */
+
+/**
+ * @function_partial iconsole_log
+ * @param {Real} level
+ * @param {String} text
+ * @function_end 
+ */
+
+/**
+ * @function_partial iconsole_debug
+ * @param {String} text
+ * @function_end 
+ */
+
+/**
+ * @function_partial iconsole_info
+ * @param {String} text
+ * @function_end 
+ */
+
+/**
+ * @function_partial iconsole_warn
+ * @param {String} text
+ * @function_end 
+ */
+
+/**
+ * @function_partial iconsole_error
+ * @param {String} text
+ * @function_end 
+ */
+
+/**
+ * @function_partial iconsole_set_timestamp
+ * @param {Bool} enabled
+ * @function_end 
+ */
+
+/**
+ * @function_partial iconsole_timestamp_enabled
+ * @returns {Bool} 
+ * @function_end 
+ */
+
+/**
+ * @function_partial iconsole_set_log_file
+ * @param {String} path
+ * @function_end 
+ */
+
+/**
+ * @function_partial iconsole_set_log_file_append
+ * @param {String} path
+ * @function_end 
+ */
+
+/**
+ * @function_partial iconsole_get_log_file
+ * @returns {String} 
+ * @function_end 
+ */
+
+/**
+ * @function_partial iconsole_close_log_file
+ * @function_end 
+ */
+
+/**
+ * @function_partial iconsole_log_file_open
+ * @returns {Bool} 
+ * @function_end 
+ */
+
+/**
+ * @function_partial iconsole_has_input
+ * @returns {Bool} 
+ * @function_end 
+ */
+
+/**
+ * @function_partial iconsole_read_line
+ * @param {Real} timeout_ms
+ * @returns {String} 
+ * @function_end 
+ */
+
+/**
+ * @function_partial iconsole_read_key
+ * @returns {Real} 
+ * @function_end 
+ */
+
+/**
+ * @const_partial macros
+ * @const_end 
+ */
+

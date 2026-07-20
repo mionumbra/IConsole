@@ -1,72 +1,111 @@
 [gml_api]
 module IConsole;
 
-// Open the console window
-// Windows: AllocConsole() to attach a console to the process
-// Linux/macOS: Open log output (stderr or file)
+// ============================================================================
+// Lifecycle
+// ============================================================================
+
+// Open the console window / enable console output.
+// Windows: reuse existing console, AttachConsole(parent), or AllocConsole.
+// Linux/macOS: mark console open (writes to stderr when open).
 [global, bind = typed_gml]
 function iconsole_open() : unit;
 
-// Print a line of text to the console
-[global, bind = typed_gml]
-function iconsole_print(text : string) : unit;
-
-// Print a line of text with newline to the console
-[global, bind = typed_gml]
-function iconsole_print_line(text : string) : unit;
-
-// Clear the console content
-// Windows: Fill console buffer with spaces
-// Linux/macOS: Clear terminal or log file
-[global, bind = typed_gml]
-function iconsole_clear() : unit;
-
-// Close the console window / release resources
+// Close the console window / release console handles.
 [global, bind = typed_gml]
 function iconsole_close() : unit;
 
-// Check if console is currently open
+// Extension unload cleanup (closes log file and console).
+[global, finish_fn, bind = typed_gml]
+function iconsole_shutdown() : unit;
+
+// Check if console is currently open.
 [global, bind = typed_gml]
 function iconsole_is_open() : bool;
 
-// Set the console window title (Windows only)
+// ============================================================================
+// Output
+// ============================================================================
+
+// Print text without a trailing newline.
+[global, bind = typed_gml]
+function iconsole_print(text : string) : unit;
+
+// Print text with a trailing newline (CRLF on Windows console).
+[global, bind = typed_gml]
+function iconsole_print_line(text : string) : unit;
+
+// Clear the console content.
+[global, bind = typed_gml]
+function iconsole_clear() : unit;
+
+// Flush pending console / stdout / log file buffers.
+[global, bind = typed_gml]
+function iconsole_flush() : unit;
+
+// Set the console window title (Windows only; no-op elsewhere).
 [global, bind = typed_gml]
 function iconsole_set_title(title : string) : unit;
 
-// Set text color (Windows console colors 0-15)
-// Colors: 0=Black, 1=Blue, 2=Green, 3=Cyan, 4=Red, 5=Magenta,
-//         6=Yellow, 7=White, 8=Gray, 9=LightBlue, 10=LightGreen,
-//         11=LightCyan, 12=LightRed, 13=LightMagenta, 14=LightYellow, 15=BrightWhite
+// Set text color (Windows console attributes 0-15).
+// 0=Black, 1=Blue, 2=Green, 3=Cyan, 4=Red, 5=Magenta,
+// 6=Yellow, 7=White, 8=Gray, 9=LightBlue, 10=LightGreen,
+// 11=LightCyan, 12=LightRed, 13=LightMagenta, 14=LightYellow, 15=BrightWhite
 [global, bind = typed_gml]
 function iconsole_set_color(color : int32) : unit;
+
+// Reset text color to the console default attributes.
+[global, bind = typed_gml]
+function iconsole_reset_color() : unit;
+
+// Force ANSI escape sequences when writing to redirected/pipe stdout (IDE capture).
+// Default false: plain text for IDE output windows that do not support ANSI.
+[global, bind = typed_gml]
+function iconsole_set_force_ansi(enabled : bool) : unit;
+
+// Whether force-ANSI is enabled.
+[global, bind = typed_gml]
+function iconsole_force_ansi_enabled() : bool;
 
 // ============================================================================
 // Log Level System
 // ============================================================================
 
 // Log levels: 0=DEBUG, 1=INFO, 2=WARN, 3=ERROR
-// Only messages with level >= current level will be output
+// Only messages with level >= current level are emitted.
 [global, bind = typed_gml]
 function iconsole_set_log_level(level : int32) : unit;
 
-// Get current log level
+// Get current log level.
 [global, bind = typed_gml]
 function iconsole_get_log_level() : int32;
 
-// Log with level: only outputs if level >= current log level
-// Automatically adds color: DEBUG=gray, INFO=white, WARN=yellow, ERROR=red
+// Log with level. Adds optional timestamp + level prefix and level color.
 [global, bind = typed_gml]
 function iconsole_log(level : int32, text : string) : unit;
+
+// Convenience level helpers.
+[global, bind = typed_gml]
+function iconsole_debug(text : string) : unit;
+
+[global, bind = typed_gml]
+function iconsole_info(text : string) : unit;
+
+[global, bind = typed_gml]
+function iconsole_warn(text : string) : unit;
+
+[global, bind = typed_gml]
+function iconsole_error(text : string) : unit;
 
 // ============================================================================
 // Timestamp System
 // ============================================================================
 
-// Enable/disable timestamp prefix on output
+// Enable/disable timestamp prefix on log output.
 [global, bind = typed_gml]
 function iconsole_set_timestamp(enabled : bool) : unit;
 
-// Check if timestamp is enabled
+// Check if timestamp is enabled.
 [global, bind = typed_gml]
 function iconsole_timestamp_enabled() : bool;
 
@@ -74,20 +113,23 @@ function iconsole_timestamp_enabled() : bool;
 // File Logging
 // ============================================================================
 
-// Set log file path - all output will be written to this file in addition to console
-// File output has no ANSI color codes (plain text only)
+// Open/create a log file (truncate). All console output is also written as plain text.
 [global, bind = typed_gml]
 function iconsole_set_log_file(path : string) : unit;
 
-// Get current log file path
+// Open a log file in append mode (create if missing).
+[global, bind = typed_gml]
+function iconsole_set_log_file_append(path : string) : unit;
+
+// Get current log file path (empty if none).
 [global, bind = typed_gml]
 function iconsole_get_log_file() : string;
 
-// Close log file
+// Close log file.
 [global, bind = typed_gml]
 function iconsole_close_log_file() : unit;
 
-// Check if log file is open
+// Check if log file is open.
 [global, bind = typed_gml]
 function iconsole_log_file_open() : bool;
 
@@ -95,16 +137,16 @@ function iconsole_log_file_open() : bool;
 // Console Input
 // ============================================================================
 
-// Check if input is available (non-blocking)
+// Check if input is available (non-blocking).
 [global, bind = typed_gml]
 function iconsole_has_input() : bool;
 
-// Read a line of input (blocks for up to timeout_ms milliseconds)
-// Returns empty string if timeout or no input
+// Read a line of input (wait up to timeout_ms milliseconds; -1 waits indefinitely).
+// Returns empty string if timeout or no input.
 [global, bind = typed_gml]
 function iconsole_read_line(timeout_ms : int32) : string;
 
-// Read a single keypress (non-blocking)
-// Returns 0 if no key pressed, otherwise the virtual key code
+// Read a single keypress (non-blocking).
+// Returns 0 if no key pressed, otherwise the virtual key code (Windows) or byte (POSIX).
 [global, bind = typed_gml]
 function iconsole_read_key() : int32;

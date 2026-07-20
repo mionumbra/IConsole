@@ -36,5 +36,11 @@ void Shutdown_IConsole()
     FunctionPointer fnHandle = nullptr;
     void* libHandle = nullptr;
 
+    libHandle = ExtUtils_GetLibraryHandle("IConsole.ext");
+    if (libHandle)
+    {
+        fnHandle = (FunctionPointer)SharedLibrary_GetFunctionAddress(libHandle, "__EXT_NATIVE__iconsole_shutdown");
+        if (fnHandle) fnHandle();
+    }
     isInitialized = false;
 }
