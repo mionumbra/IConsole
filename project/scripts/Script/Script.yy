@@ -1,0 +1,13 @@
+{
+  "$GMScript":"v1",
+  "%Name":"Script",
+  "isCompatibility":false,
+  "isDnD":false,
+  "name":"Script",
+  "parent":{
+    "name":"IConsole",
+    "path":"IConsole.yyp",
+  },
+  "resourceType":"GMScript",
+  "resourceVersion":"2.0",
+}

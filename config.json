@@ -1,0 +1,46 @@
+{
+  "$schema": "./extgen.schema.json",
+  "root": "./",
+  "input": "./api.gmidl",
+  "profile": "Full",
+  "gamemaker": {
+    "extension": {
+      "enabled": true,
+      "outputFile": "./project/extensions/IConsole/IConsole.yy",
+      "mode": "patch",
+      "extensionName": "IConsole",
+      "extensionFileName": "IConsole.ext",
+      "patchFrameworks": true
+    },
+    "injectors": {
+      "enabled": true,
+      "outputFolder": "./project/extensions/IConsole/injectors"
+    }
+  },
+  "targets": {
+    "sourceFolder": "./native",
+    "sourceFile": "{0}_native",
+    "windows": {
+      "enabled": true,
+      "outputFolder": "./project/extensions/IConsole"
+    }
+  },
+  "extras": {
+    "docs": {
+      "enabled": true,
+      "outputFolder": "./docs",
+      "outputFile": "documentation.json",
+      "overwrite": true
+    }
+  },
+  "build": {
+    "emitCmake": true,
+    "cmake": {
+      "cppStandard": 20,
+      "cppExtensions": false,
+      "strictWarnings": true,
+      "useThirdParty": false,
+      "emitPresets": true
+    }
+  }
+}

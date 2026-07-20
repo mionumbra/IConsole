@@ -1,37 +1,25 @@
-# Build outputs
-extgen/out/
-extgen/IConsole.dll
-extgen/IConsole.lib
-extgen/IConsole.exp
-
-# IDE
-.vs/
-.vscode/
-*.user
-*.suo
-*.sln.docstates
-
-# CMake
-CMakeUserPresets.json
-CMakeCache.txt
-CMakeFiles/
-
-# OS
-.DS_Store
-Thumbs.db
-desktop.ini
-
-# extgen generated (keep spec.gmidl and config.json)
-extgen/extgen.schema.json
-extgen/.clang-format
-extgen/.gitignore
-extgen/templates/
-extgen/third_party/
-extgen/cmake/
-
-# GameMaker
-*.yyp
-*.yy
-*.png
-*.jpg
-GM-ExtensionGenerator.wiki/
+/extgen.schema.json
+/CMakeLists.txt
+/CMakeUserPresets.json
+/CMakePresets.json
+/.clang-format
+code_gen/
+project/extensions/ICompression/injectors
+project/extensions/ICompression/ICompression.dll
+project/scripts/ICompression_api/ICompression_api.gml
+project/scripts/GMExtCore/GMExtCore.gml
+cmake/
+build/
+out/
+templates/
+/docs
+*.o
+*.obj
+*.dll
+*.so
+*.dylib
+*.exe
+*.lib
+*.exp
+*.ilk
+*.pdb
