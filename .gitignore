@@ -4,6 +4,7 @@
 /CMakePresets.json
 /.clang-format
 code_gen/
+third_party/
 project/extensions/IConsole/injectors
 project/extensions/IConsole/IConsole.dll
 cmake/
