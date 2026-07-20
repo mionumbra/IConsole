@@ -11,10 +11,6 @@
       "extensionName": "IConsole",
       "extensionFileName": "IConsole.ext",
       "patchFrameworks": true
-    },
-    "injectors": {
-      "enabled": true,
-      "outputFolder": "./project/extensions/IConsole/injectors"
     }
   },
   "targets": {
