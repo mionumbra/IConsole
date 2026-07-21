@@ -6,7 +6,8 @@ module IConsole;
 // ============================================================================
 
 // Open the console window / enable console output.
-// Windows: reuse existing console, AttachConsole(parent), or AllocConsole.
+// Windows: preserve redirected stdout (IDE/pipe/file), reuse the current or
+// parent console, and allocate a new console only when none is available.
 // Linux/macOS: mark console open (writes to stderr when open).
 [global, bind = typed_gml]
 function iconsole_open() : unit;
@@ -80,7 +81,7 @@ function iconsole_set_log_level(level : int32) : unit;
 [global, bind = typed_gml]
 function iconsole_get_log_level() : int32;
 
-// Log with level. Adds optional timestamp + level prefix and level color.
+// Log with level clamped to 0-3. Adds optional timestamp + level prefix and level color.
 [global, bind = typed_gml]
 function iconsole_log(level : int32, text : string) : unit;
 
@@ -113,11 +114,12 @@ function iconsole_timestamp_enabled() : bool;
 // File Logging
 // ============================================================================
 
-// Open/create a log file (truncate). All console output is also written as plain text.
+// Open/create a UTF-8 path (truncate). A failed replacement preserves the active log.
+// All console output is also written as UTF-8 plain text.
 [global, bind = typed_gml]
 function iconsole_set_log_file(path : string) : unit;
 
-// Open a log file in append mode (create if missing).
+// Open a UTF-8 path in append mode (create if missing).
 [global, bind = typed_gml]
 function iconsole_set_log_file_append(path : string) : unit;
 
@@ -137,11 +139,11 @@ function iconsole_log_file_open() : bool;
 // Console Input
 // ============================================================================
 
-// Check if input is available (non-blocking).
+// Check if a completed input line is available (non-blocking).
 [global, bind = typed_gml]
 function iconsole_has_input() : bool;
 
-// Read a line of input (wait up to timeout_ms milliseconds; -1 waits indefinitely).
+// Read a completed line (wait up to timeout_ms milliseconds; -1 waits indefinitely).
 // Returns empty string if timeout or no input.
 [global, bind = typed_gml]
 function iconsole_read_line(timeout_ms : int32) : string;

@@ -43,3 +43,7 @@ endif()
 
 target_sources(${PROJECT_NAME} PRIVATE ${TARGET_SRCS})
 target_include_directories(${PROJECT_NAME} PRIVATE "${SRC_DIR}")
+
+if(MSVC)
+  target_compile_options(${PROJECT_NAME} PRIVATE /utf-8)
+endif()

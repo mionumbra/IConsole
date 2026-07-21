@@ -1,10 +1,13 @@
 #include "IConsole_native.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <ctime>
+#include <deque>
 #include <iostream>
+#include <limits>
 #include <mutex>
 #include <string>
 #include <string_view>
@@ -35,22 +38,13 @@ namespace
     WORD g_default_attr = 7;
     bool g_attached = false;
     bool g_allocated = false;
-    bool g_owns_out_handle = false;
+    std::wstring g_input_line;
+    wchar_t g_input_high_surrogate = 0;
+    std::deque<std::string> g_input_lines;
+    std::deque<std::int32_t> g_input_keys;
 #endif
 
 #ifdef OS_WINDOWS
-    static bool stdout_is_console()
-    {
-        HANDLE h = ::GetStdHandle(STD_OUTPUT_HANDLE);
-        if (h == INVALID_HANDLE_VALUE || h == nullptr)
-            return false;
-        DWORD mode = 0;
-        if (::GetConsoleMode(h, &mode))
-            return true;
-        HWND hwnd = ::GetConsoleWindow();
-        return hwnd != nullptr && ::IsWindowVisible(hwnd) != FALSE;
-    }
-
     static bool stdout_is_pipe_or_disk()
     {
         HANDLE h = ::GetStdHandle(STD_OUTPUT_HANDLE);
@@ -60,24 +54,176 @@ namespace
         return ft == FILE_TYPE_PIPE || ft == FILE_TYPE_DISK;
     }
 
+    static std::wstring utf8_to_wide(std::string_view utf8)
+    {
+        if (utf8.empty() || utf8.size() > static_cast<std::size_t>(std::numeric_limits<int>::max()))
+            return {};
+        const int wlen = ::MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), nullptr, 0);
+        if (wlen <= 0)
+            return {};
+        std::wstring wbuf(static_cast<size_t>(wlen), L'\0');
+        if (::MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), wbuf.data(), wlen) != wlen)
+            return {};
+        return wbuf;
+    }
+
+    static std::string wide_to_utf8(std::wstring_view wide)
+    {
+        if (wide.empty() || wide.size() > static_cast<std::size_t>(std::numeric_limits<int>::max()))
+            return {};
+        const int length = ::WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), nullptr, 0, nullptr, nullptr);
+        if (length <= 0)
+            return {};
+        std::string result(static_cast<std::size_t>(length), '\0');
+        if (::WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), result.data(), length, nullptr, nullptr) != length)
+            return {};
+        return result;
+    }
+
+    static void write_console_wide(HANDLE h, std::wstring_view text)
+    {
+        std::size_t offset = 0;
+        while (offset < text.size())
+        {
+            const DWORD length = static_cast<DWORD>(std::min<std::size_t>(text.size() - offset, 32767));
+            DWORD written = 0;
+            if (!::WriteConsoleW(h, text.data() + offset, length, &written, nullptr) || written == 0)
+                return;
+            offset += written;
+        }
+    }
+
     static void write_console_utf8(HANDLE h, std::string_view utf8)
     {
         if (h == INVALID_HANDLE_VALUE || h == nullptr || utf8.empty())
             return;
-        const int wlen = ::MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), nullptr, 0);
-        if (wlen <= 0)
-            return;
-        std::wstring wbuf(static_cast<size_t>(wlen), L'\0');
-        ::MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), wbuf.data(), wlen);
-        DWORD written = 0;
-        ::WriteConsoleW(h, wbuf.c_str(), static_cast<DWORD>(wlen), &written, nullptr);
+        write_console_wide(h, utf8_to_wide(utf8));
     }
 
-    static void enable_vt(HANDLE h)
+    static bool open_console_handles()
     {
-        DWORD mode = 0;
-        if (h != INVALID_HANDLE_VALUE && h != nullptr && ::GetConsoleMode(h, &mode))
-            ::SetConsoleMode(h, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+        HANDLE out = ::CreateFileW(L"CONOUT$", GENERIC_READ | GENERIC_WRITE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr);
+        if (out == INVALID_HANDLE_VALUE)
+            return false;
+        HANDLE in = ::CreateFileW(L"CONIN$", GENERIC_READ | GENERIC_WRITE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr);
+        if (in == INVALID_HANDLE_VALUE)
+        {
+            ::CloseHandle(out);
+            return false;
+        }
+
+        g_hOut = out;
+        g_hIn = in;
+        CONSOLE_SCREEN_BUFFER_INFO info{};
+        if (::GetConsoleScreenBufferInfo(g_hOut, &info))
+            g_default_attr = info.wAttributes;
+        return true;
+    }
+
+    static void close_console_unlocked()
+    {
+        if (g_hOut != INVALID_HANDLE_VALUE && g_hOut != nullptr)
+            ::CloseHandle(g_hOut);
+        if (g_hIn != INVALID_HANDLE_VALUE && g_hIn != nullptr)
+            ::CloseHandle(g_hIn);
+        g_hOut = INVALID_HANDLE_VALUE;
+        g_hIn = INVALID_HANDLE_VALUE;
+
+        if (g_allocated || g_attached)
+            ::FreeConsole();
+        g_allocated = false;
+        g_attached = false;
+        g_input_line.clear();
+        g_input_high_surrogate = 0;
+        g_input_lines.clear();
+        g_input_keys.clear();
+        g_is_open = false;
+    }
+
+    static void poll_console_input_unlocked()
+    {
+        if (!g_is_open || g_hIn == INVALID_HANDLE_VALUE || g_hIn == nullptr)
+            return;
+
+        INPUT_RECORD events[64];
+        DWORD remaining = 256;
+        while (remaining > 0)
+        {
+            DWORD available = 0;
+            if (!::GetNumberOfConsoleInputEvents(g_hIn, &available) || available == 0)
+                return;
+
+            DWORD read = 0;
+            if (!::ReadConsoleInputW(g_hIn, events, std::min<DWORD>({available, 64, remaining}), &read))
+                return;
+            remaining -= read;
+
+            for (DWORD i = 0; i < read; ++i)
+            {
+                const INPUT_RECORD& event = events[i];
+                if (event.EventType != KEY_EVENT || !event.Event.KeyEvent.bKeyDown)
+                    continue;
+
+                const KEY_EVENT_RECORD& key = event.Event.KeyEvent;
+                const WORD repeats = std::max<WORD>(key.wRepeatCount, 1);
+                for (WORD repeat = 0; repeat < repeats; ++repeat)
+                {
+                    if (g_input_keys.size() == 256)
+                        g_input_keys.pop_front();
+                    g_input_keys.push_back(static_cast<std::int32_t>(key.wVirtualKeyCode));
+
+                    const wchar_t character = key.uChar.UnicodeChar;
+                    if (character == L'\r')
+                    {
+                        g_input_high_surrogate = 0;
+                        if (g_input_lines.size() == 64)
+                            g_input_lines.pop_front();
+                        g_input_lines.push_back(wide_to_utf8(g_input_line));
+                        g_input_line.clear();
+                        write_console_wide(g_hOut, L"\r\n");
+                    }
+                    else if (character == L'\b')
+                    {
+                        if (g_input_high_surrogate != 0)
+                        {
+                            g_input_high_surrogate = 0;
+                        }
+                        else if (!g_input_line.empty())
+                        {
+                            g_input_line.pop_back();
+                            if (!g_input_line.empty() && g_input_line.back() >= 0xD800 && g_input_line.back() <= 0xDBFF)
+                                g_input_line.pop_back();
+                            write_console_wide(g_hOut, L"\b \b");
+                        }
+                    }
+                    else if (character >= 0xD800 && character <= 0xDBFF)
+                    {
+                        g_input_high_surrogate = character;
+                    }
+                    else if (character >= 0xDC00 && character <= 0xDFFF)
+                    {
+                        if (g_input_high_surrogate != 0 && g_input_line.size() <= 1024 * 1024 - 2)
+                        {
+                            const wchar_t pair[] = {g_input_high_surrogate, character};
+                            g_input_line.append(pair, 2);
+                            write_console_wide(g_hOut, std::wstring_view(pair, 2));
+                        }
+                        g_input_high_surrogate = 0;
+                    }
+                    else if (character >= L' ')
+                    {
+                        g_input_high_surrogate = 0;
+                        if (g_input_line.size() < 1024 * 1024)
+                        {
+                            g_input_line.push_back(character);
+                            write_console_wide(g_hOut, std::wstring_view(&character, 1));
+                        }
+                    }
+                }
+            }
+        }
     }
 #else
     static bool stdout_is_console() { return ::isatty(STDOUT_FILENO) != 0; }
@@ -123,18 +269,6 @@ namespace
         }
     }
 
-    static const char* ansi_for_level(std::int32_t level)
-    {
-        switch (level)
-        {
-        case 0: return "\x1b[90m";
-        case 1: return "\x1b[37m";
-        case 2: return "\x1b[33m";
-        case 3: return "\x1b[31m";
-        default: return "\x1b[37m";
-        }
-    }
-
     [[maybe_unused]] static const char* ansi_for_color(std::int32_t color)
     {
         switch (color & 0x0F)
@@ -163,28 +297,45 @@ namespace
     {
         if (!g_log_file)
             return;
-        std::fwrite(text.data(), 1, text.size(), g_log_file);
-        std::fflush(g_log_file);
+        if (std::fwrite(text.data(), 1, text.size(), g_log_file) != text.size() || std::fflush(g_log_file) != 0)
+        {
+            std::fclose(g_log_file);
+            g_log_file = nullptr;
+            g_log_path.clear();
+        }
     }
 
     static void open_log_file_unlocked(std::string_view path, bool append)
     {
-        if (g_log_file)
+        if (path.empty())
+            return;
+        if (!append && g_log_file && path == g_log_path)
+            return;
+
+        std::FILE* next = nullptr;
+#ifdef OS_WINDOWS
+        const std::wstring wide_path = utf8_to_wide(path);
+        if (wide_path.empty() || _wfopen_s(&next, wide_path.c_str(), append ? L"ab" : L"wb") != 0)
+            return;
+#else
+        next = std::fopen(std::string(path).c_str(), append ? "ab" : "wb");
+#endif
+        if (!next)
+            return;
+
+        const std::string next_path(path);
+        if (std::fprintf(next, "=== IConsole Log %s ===\n", append ? "(append)" : "(new)") < 0 ||
+            std::fprintf(next, "Path: %s\n", next_path.c_str()) < 0 ||
+            std::fprintf(next, "========================\n") < 0 || std::fflush(next) != 0)
         {
-            std::fclose(g_log_file);
-            g_log_file = nullptr;
-        }
-        g_log_path.assign(path);
-        g_log_file = std::fopen(g_log_path.c_str(), append ? "a" : "w");
-        if (!g_log_file)
-        {
-            g_log_path.clear();
+            std::fclose(next);
             return;
         }
-        std::fprintf(g_log_file, "=== IConsole Log %s ===\n", append ? "(append)" : "(new)");
-        std::fprintf(g_log_file, "Path: %s\n", g_log_path.c_str());
-        std::fprintf(g_log_file, "========================\n");
-        std::fflush(g_log_file);
+
+        if (g_log_file)
+            std::fclose(g_log_file);
+        g_log_file = next;
+        g_log_path = next_path;
     }
 
     static void close_log_file_unlocked()
@@ -198,7 +349,7 @@ namespace
         g_log_path.clear();
     }
 
-    // Prefer visible console when open; else IDE pipe via cout; else cout fallback.
+    // Prefer an open console; otherwise preserve the Runner/IDE stdout path.
     static void emit_text(std::string_view text, std::string_view console_text, std::int32_t color_attr, bool colored)
     {
         write_log_file(text);
@@ -210,7 +361,7 @@ namespace
         if (is_pipe && !has_console)
         {
             if (g_force_ansi && colored)
-                std::cout << ansi_for_level(color_attr) << text << "\x1b[0m";
+                std::cout << ansi_for_color(color_attr) << text << "\x1b[0m";
             else
                 std::cout << text;
             std::fflush(stdout);
@@ -225,7 +376,7 @@ namespace
                 CONSOLE_SCREEN_BUFFER_INFO csbi{};
                 if (::GetConsoleScreenBufferInfo(g_hOut, &csbi))
                     old = csbi.wAttributes;
-                ::SetConsoleTextAttribute(g_hOut, static_cast<WORD>(color_attr & 0x0F));
+                ::SetConsoleTextAttribute(g_hOut, static_cast<WORD>((old & 0xFFF0) | (color_attr & 0x0F)));
             }
             write_console_utf8(g_hOut, console_text);
             if (colored)
@@ -240,7 +391,7 @@ namespace
         if (is_pipe && !g_is_open)
         {
             if (g_force_ansi && colored)
-                std::cout << ansi_for_level(color_attr) << text << "\x1b[0m";
+                std::cout << ansi_for_color(color_attr) << text << "\x1b[0m";
             else
                 std::cout << text;
             std::fflush(stdout);
@@ -249,7 +400,7 @@ namespace
         if (g_is_open)
         {
             if (colored)
-                std::fprintf(stderr, "%s%.*s\x1b[0m", ansi_for_level(color_attr), static_cast<int>(text.size()), text.data());
+                std::fprintf(stderr, "%s%.*s\x1b[0m", ansi_for_color(color_attr), static_cast<int>(text.size()), text.data());
             else
                 std::fwrite(text.data(), 1, text.size(), stderr);
             std::fflush(stderr);
@@ -299,21 +450,6 @@ namespace
         emit_text(plain, console, level_color(level), true);
     }
 
-#ifdef OS_WINDOWS
-    static void bind_existing_console()
-    {
-        g_hOut = ::GetStdHandle(STD_OUTPUT_HANDLE);
-        g_hIn = ::GetStdHandle(STD_INPUT_HANDLE);
-        g_owns_out_handle = false;
-        CONSOLE_SCREEN_BUFFER_INFO csbi{};
-        if (g_hOut != INVALID_HANDLE_VALUE && ::GetConsoleScreenBufferInfo(g_hOut, &csbi))
-            g_default_attr = csbi.wAttributes;
-        enable_vt(g_hOut);
-        g_attached = false;
-        g_allocated = false;
-        g_is_open = true;
-    }
-#endif
 } // namespace
 
 void iconsole_open()
@@ -323,81 +459,44 @@ void iconsole_open()
         return;
 
 #ifdef OS_WINDOWS
-    if (stdout_is_console())
+    // IDEs and redirected command-line launches already provide the desired
+    // output channel. Do not attach or allocate a console in that case.
+    if (stdout_is_pipe_or_disk())
     {
-        bind_existing_console();
+        g_is_open = true;
+        return;
+    }
+
+    if (open_console_handles())
+    {
+        g_is_open = true;
         return;
     }
 
     if (::AttachConsole(ATTACH_PARENT_PROCESS))
     {
-        g_hOut = ::GetStdHandle(STD_OUTPUT_HANDLE);
-        g_hIn = ::GetStdHandle(STD_INPUT_HANDLE);
-        g_owns_out_handle = false;
-        ::SetConsoleOutputCP(CP_UTF8);
-        if (g_hIn != INVALID_HANDLE_VALUE && g_hIn != nullptr)
-            ::SetConsoleMode(g_hIn, ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT | ENABLE_PROCESSED_INPUT);
-
-        HWND hwnd = ::GetConsoleWindow();
-        const bool visible = hwnd != nullptr && ::IsWindowVisible(hwnd) != FALSE;
-        if (!visible)
+        if (!open_console_handles())
         {
-            // Parent attached via pipe (IDE capture). Do not FreeConsole/AllocConsole.
+            ::FreeConsole();
+        }
+        else
+        {
             g_attached = true;
-            g_allocated = false;
-            g_is_open = false;
-            g_hOut = INVALID_HANDLE_VALUE;
-            g_hIn = INVALID_HANDLE_VALUE;
+            g_is_open = true;
+            write_console_utf8(g_hOut, "\r\n");
             return;
         }
-
-        CONSOLE_SCREEN_BUFFER_INFO csbi{};
-        if (g_hOut != INVALID_HANDLE_VALUE && ::GetConsoleScreenBufferInfo(g_hOut, &csbi))
-            g_default_attr = csbi.wAttributes;
-        enable_vt(g_hOut);
-        g_attached = true;
-        g_allocated = false;
-        g_is_open = true;
-        write_console_utf8(g_hOut, "\r\n");
-        return;
     }
 
     if (::AllocConsole())
     {
-        HANDLE h = ::CreateFileA(
-            "CONOUT$",
-            GENERIC_WRITE | GENERIC_READ,
-            FILE_SHARE_WRITE | FILE_SHARE_READ,
-            nullptr,
-            OPEN_EXISTING,
-            FILE_ATTRIBUTE_NORMAL,
-            nullptr);
-
-        g_hOut = (h != INVALID_HANDLE_VALUE && h != nullptr) ? h : ::GetStdHandle(STD_OUTPUT_HANDLE);
-        g_owns_out_handle = (h != INVALID_HANDLE_VALUE && h != nullptr);
-        g_hIn = ::GetStdHandle(STD_INPUT_HANDLE);
-
-#ifdef _MSC_VER
-        FILE* fp = nullptr;
-        freopen_s(&fp, "CONOUT$", "w", stdout);
-        freopen_s(&fp, "CONOUT$", "w", stderr);
-#else
-        freopen("CONOUT$", "w", stdout);
-        freopen("CONOUT$", "w", stderr);
-#endif
-        ::SetConsoleOutputCP(CP_UTF8);
-        if (g_hIn != INVALID_HANDLE_VALUE && g_hIn != nullptr)
-            ::SetConsoleMode(g_hIn, ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT | ENABLE_PROCESSED_INPUT);
-
-        CONSOLE_SCREEN_BUFFER_INFO csbi{};
-        if (g_hOut != INVALID_HANDLE_VALUE && ::GetConsoleScreenBufferInfo(g_hOut, &csbi))
-            g_default_attr = csbi.wAttributes;
-        enable_vt(g_hOut);
-
-        g_allocated = true;
-        g_attached = false;
-        g_is_open = true;
-        return;
+        if (open_console_handles())
+        {
+            g_allocated = true;
+            g_is_open = true;
+            return;
+        }
+        ::FreeConsole();
     }
 #else
     g_is_open = true;
@@ -409,33 +508,21 @@ void iconsole_close()
     std::lock_guard lock(g_mutex);
 
 #ifdef OS_WINDOWS
-    if (g_allocated)
-    {
-        if (g_owns_out_handle && g_hOut != INVALID_HANDLE_VALUE && g_hOut != nullptr)
-            ::CloseHandle(g_hOut);
-        ::FreeConsole();
-        g_owns_out_handle = false;
-        g_allocated = false;
-    }
-    else if (g_attached)
-    {
-        ::FreeConsole();
-        g_attached = false;
-    }
-    g_hOut = INVALID_HANDLE_VALUE;
-    g_hIn = INVALID_HANDLE_VALUE;
-#endif
+    close_console_unlocked();
+#else
     g_is_open = false;
+#endif
 }
 
 void iconsole_shutdown()
 {
-    // close + log without re-entrant lock issues
-    {
-        std::lock_guard lock(g_mutex);
-        close_log_file_unlocked();
-    }
-    iconsole_close();
+    std::lock_guard lock(g_mutex);
+    close_log_file_unlocked();
+#ifdef OS_WINDOWS
+    close_console_unlocked();
+#else
+    g_is_open = false;
+#endif
 }
 
 bool iconsole_is_open()
@@ -513,7 +600,11 @@ void iconsole_set_color(std::int32_t color)
         return;
 #ifdef OS_WINDOWS
     if (g_hOut != INVALID_HANDLE_VALUE && g_hOut != nullptr)
-        ::SetConsoleTextAttribute(g_hOut, static_cast<WORD>(color & 0x0F));
+    {
+        CONSOLE_SCREEN_BUFFER_INFO info{};
+        if (::GetConsoleScreenBufferInfo(g_hOut, &info))
+            ::SetConsoleTextAttribute(g_hOut, static_cast<WORD>((info.wAttributes & 0xFFF0) | (color & 0x0F)));
+    }
 #else
     std::fputs(ansi_for_color(color), stderr);
     std::fflush(stderr);
@@ -565,6 +656,7 @@ std::int32_t iconsole_get_log_level()
 void iconsole_log(std::int32_t level, std::string_view text)
 {
     std::lock_guard lock(g_mutex);
+    level = std::clamp<std::int32_t>(level, 0, 3);
     emit_log_unlocked(level, text);
 }
 
@@ -643,18 +735,8 @@ bool iconsole_has_input()
 #ifdef OS_WINDOWS
     if (g_hIn == INVALID_HANDLE_VALUE || g_hIn == nullptr)
         return false;
-    DWORD events = 0;
-    if (!::GetNumberOfConsoleInputEvents(g_hIn, &events) || events == 0)
-        return false;
-    INPUT_RECORD ir{};
-    DWORD read = 0;
-    while (::PeekConsoleInputW(g_hIn, &ir, 1, &read) && read > 0)
-    {
-        if (ir.EventType == KEY_EVENT && ir.Event.KeyEvent.bKeyDown && ir.Event.KeyEvent.uChar.UnicodeChar != 0)
-            return true;
-        ::ReadConsoleInputW(g_hIn, &ir, 1, &read);
-    }
-    return false;
+    poll_console_input_unlocked();
+    return !g_input_lines.empty();
 #else
     fd_set fds;
     FD_ZERO(&fds);
@@ -666,7 +748,7 @@ bool iconsole_has_input()
 
 std::string iconsole_read_line(std::int32_t timeout_ms)
 {
-    std::lock_guard lock(g_mutex);
+    std::unique_lock lock(g_mutex);
     if (!g_is_open)
         return {};
 
@@ -674,33 +756,24 @@ std::string iconsole_read_line(std::int32_t timeout_ms)
     if (g_hIn == INVALID_HANDLE_VALUE || g_hIn == nullptr)
         return {};
 
-    const DWORD start = ::GetTickCount();
+    const ULONGLONG start = ::GetTickCount64();
     for (;;)
     {
-        DWORD events = 0;
-        if (!::GetNumberOfConsoleInputEvents(g_hIn, &events))
+        poll_console_input_unlocked();
+        if (!g_input_lines.empty())
+        {
+            std::string result = std::move(g_input_lines.front());
+            g_input_lines.pop_front();
+            return result;
+        }
+        if (!g_is_open)
             return {};
-        if (events > 0)
-            break;
-        if (timeout_ms >= 0 && (::GetTickCount() - start) >= static_cast<DWORD>(timeout_ms))
+        if (timeout_ms >= 0 && (::GetTickCount64() - start) >= static_cast<ULONGLONG>(timeout_ms))
             return {};
+        lock.unlock();
         ::Sleep(1);
+        lock.lock();
     }
-
-    wchar_t buffer[4096];
-    DWORD chars_read = 0;
-    if (!::ReadConsoleW(g_hIn, buffer, 4095, &chars_read, nullptr) || chars_read == 0)
-        return {};
-    while (chars_read > 0 && (buffer[chars_read - 1] == L'\n' || buffer[chars_read - 1] == L'\r'))
-        --chars_read;
-    buffer[chars_read] = L'\0';
-
-    const int utf8_len = ::WideCharToMultiByte(CP_UTF8, 0, buffer, static_cast<int>(chars_read), nullptr, 0, nullptr, nullptr);
-    if (utf8_len <= 0)
-        return {};
-    std::string result(static_cast<size_t>(utf8_len), '\0');
-    ::WideCharToMultiByte(CP_UTF8, 0, buffer, static_cast<int>(chars_read), result.data(), utf8_len, nullptr, nullptr);
-    return result;
 #else
     fd_set fds;
     FD_ZERO(&fds);
@@ -735,18 +808,12 @@ std::int32_t iconsole_read_key()
 #ifdef OS_WINDOWS
     if (g_hIn == INVALID_HANDLE_VALUE || g_hIn == nullptr)
         return 0;
-    INPUT_RECORD ir{};
-    DWORD read = 0;
-    while (::PeekConsoleInputW(g_hIn, &ir, 1, &read) && read > 0)
-    {
-        if (ir.EventType == KEY_EVENT && ir.Event.KeyEvent.bKeyDown)
-        {
-            ::ReadConsoleInputW(g_hIn, &ir, 1, &read);
-            return static_cast<std::int32_t>(ir.Event.KeyEvent.wVirtualKeyCode);
-        }
-        ::ReadConsoleInputW(g_hIn, &ir, 1, &read);
-    }
-    return 0;
+    poll_console_input_unlocked();
+    if (g_input_keys.empty())
+        return 0;
+    const std::int32_t key = g_input_keys.front();
+    g_input_keys.pop_front();
+    return key;
 #else
     fd_set fds;
     FD_ZERO(&fds);
